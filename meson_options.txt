@@ -660,3 +660,11 @@ option (
   value : 'disabled',
   description: 'Enable Intel Xe KMD support.'
 )
+
+option(
+  'vc4-glsl',
+  type : 'feature',
+  value : 'disabled',
+  deprecated: {'true': 'enabled', 'false': 'disabled'},
+  description : 'Whether to build standalone VC4 compiler'
+)

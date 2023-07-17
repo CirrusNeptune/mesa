@@ -150,4 +150,8 @@ if with_glx != 'disabled' and not with_glvnd
   )
 endif
 
+if with_vc4_glsl
+  subdir('vc4-glsl')
+endif
+
 subdir('tool')

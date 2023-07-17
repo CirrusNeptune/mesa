@@ -24,8 +24,11 @@ project(
   version : files('VERSION'),
   license : 'MIT',
   meson_version : '>= 0.60',
-  default_options : ['buildtype=debugoptimized', 'b_ndebug=if-release', 'c_std=c11', 'cpp_std=c++17', 'rust_std=2021']
+  default_options : ['buildtype=debugoptimized', 'b_ndebug=if-release', 'c_std=c11', 'cpp_std=c++17', 'rust_std=2021',
+                     'vc4-glsl=enabled']
 )
+
+with_vc4_glsl = get_option('vc4-glsl').enabled()
 
 cc = meson.get_compiler('c')
 cpp = meson.get_compiler('cpp')
@@ -101,6 +104,7 @@ endif
 # Default shared glapi off for windows, on elsewhere.
 with_shared_glapi = get_option('shared-glapi') \
   .disable_auto_if(host_machine.system() == 'windows') \
+  .disable_if(with_vc4_glsl) \
   .allowed()
 
 with_opengl = get_option('opengl')
@@ -122,8 +126,14 @@ with_any_opengl = with_opengl or with_gles1 or with_gles2
 with_shared_glapi = with_shared_glapi and with_any_opengl
 
 system_has_kms_drm = ['openbsd', 'netbsd', 'freebsd', 'gnu/kfreebsd', 'dragonfly', 'linux', 'sunos', 'android'].contains(host_machine.system())
+if with_vc4_glsl
+  system_has_kms_drm = false
+endif
 
 gallium_drivers = get_option('gallium-drivers')
+if with_vc4_glsl
+  gallium_drivers = ['vc4']
+endif
 if gallium_drivers.contains('auto')
   if system_has_kms_drm
     # TODO: PPC, Sparc
@@ -305,6 +315,9 @@ foreach c : ['vc1dec', 'h264dec', 'h264enc', 'h265dec', 'h265enc']
 endforeach
 
 _platforms = get_option('platforms')
+if with_vc4_glsl
+  _platforms = []
+endif
 if _platforms.contains('auto')
   if system_has_kms_drm
     _platforms = ['x11', 'wayland']
@@ -327,6 +340,9 @@ with_platform_haiku = _platforms.contains('haiku')
 with_platform_windows = _platforms.contains('windows')
 
 with_glx = get_option('glx')
+if with_vc4_glsl
+  with_glx = 'disabled'
+endif
 if with_glx == 'auto'
   if not with_opengl
     with_glx = 'disabled'
@@ -1588,6 +1604,8 @@ if system_has_kms_drm
     # GNU/Hurd includes egl_dri2, without drm.
     required : (with_dri2 and host_machine.system() != 'gnu') or with_dri3
   )
+elif with_vc4_glsl
+  dep_libdrm = declare_dependency(include_directories : include_directories('src/vc4-glsl/drm-headers'))
 else
   # We should prevent libdrm from being available when the target doesn't have it to avoid transitive
   # dependencies (such as vk-runtime) linking to it
@@ -2241,3 +2259,5 @@ if with_perfetto and with_any_datasource
   perfetto_summary += {'Data source': with_datasources}
 endif
 summary(perfetto_summary, section: 'Perfetto', bool_yn: true, list_sep: ' ')
+
+summary({'Enabled': with_vc4_glsl}, section: 'VC4 GLSL', bool_yn: true, list_sep: ' ')
