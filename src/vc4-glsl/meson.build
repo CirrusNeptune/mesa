@@ -1,6 +1,7 @@
 vc4_glsl = executable(
   'vc4-glsl',
   ['vc4-glsl.c', 'vc4-standalone.cpp', 'vc4-standalone_scaffolding.cpp',
+  'ir_vertex_attribute_visitor.cpp',
   '../compiler/glsl/ir_builder_print_visitor.cpp',
   ir_expression_operation_h],
   dependencies : [dep_libdrm],

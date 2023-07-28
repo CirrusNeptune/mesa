@@ -23,7 +23,7 @@ project(
   ['c', 'cpp'],
   version : files('VERSION'),
   license : 'MIT',
-  meson_version : '>= 0.60',
+  meson_version : '>= 1.1.0',
   default_options : ['buildtype=debugoptimized', 'b_ndebug=if-release', 'c_std=c11', 'cpp_std=c++17', 'rust_std=2021',
                      'vc4-glsl=enabled']
 )
@@ -232,7 +232,7 @@ if _vulkan_drivers.contains('auto')
       error('Unknown architecture @0@. Please pass -Dvulkan-drivers to set driver options. Patches gladly accepted to fix this.'.format(
             host_machine.cpu_family()))
     endif
-  elif ['darwin', 'windows', 'cygwin', 'haiku'].contains(host_machine.system())
+  elif ['darwin', 'windows', 'cygwin', 'haiku'].contains(host_machine.system()) or with_vc4_glsl
     # No vulkan driver supports windows or macOS currently
     _vulkan_drivers = []
   else
