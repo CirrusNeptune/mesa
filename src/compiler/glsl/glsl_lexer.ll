@@ -229,7 +229,7 @@ INT		({DEC_INT}|{HEX_INT}|{OCT_INT})
 SPC		[ \t]*
 SPCP		[ \t]+
 HASH		^{SPC}#{SPC}
-PATH		["][./ _A-Za-z0-9]*["]
+PATH		["][]^./ _A-Za-z0-9+*%[(){}|&~=!:;,?-]+["]
 %%
 
 [ \r\t]+		;

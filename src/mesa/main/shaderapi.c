@@ -3492,14 +3492,114 @@ next_relative_path:
    return sh_incl_ht_entry;
 }
 
-const char *
-_mesa_lookup_shader_include(struct gl_context *ctx, char *path,
-                            bool error_check)
-{
-   struct sh_incl_path_ht_entry *shader_include =
-      lookup_shader_include(ctx, path, error_check);
+static char *
+load_text_file(void *ctx, const char *file_name, const char *return_file_name,
+               int return_line) {
+   char *final_text = NULL;
+   char *text = NULL;
+   size_t size;
+   size_t total_read = 0;
+   FILE *fp = fopen(file_name, "rb");
 
-   return shader_include ? shader_include->shader_source : NULL;
+   if (!fp) {
+      return NULL;
+   }
+
+   fseek(fp, 0L, SEEK_END);
+   size = ftell(fp);
+   fseek(fp, 0L, SEEK_SET);
+
+   size_t file_name_len = strlen(file_name);
+   size_t return_file_name_len;
+
+   size_t total_buf_size = 11 + file_name_len + size + 1;
+   if (return_file_name) {
+      size_t line_size = snprintf(NULL, 0, "\n#line %d \"", return_line);
+      return_file_name_len = strlen(return_file_name);
+      total_buf_size += line_size + 2 + return_file_name_len;
+   }
+   final_text = (char *) ralloc_size(ctx, total_buf_size);
+   if (final_text != NULL) {
+      text = final_text;
+      strcpy(text, "#line 1 \"");
+      text += 9;
+      strcpy(text, file_name);
+      text += file_name_len;
+      strcpy(text, "\"\n");
+      text += 2;
+      do {
+         size_t bytes = fread(text + total_read,
+                              1, size - total_read, fp);
+         if (bytes < size - total_read) {
+            text = NULL;
+            goto error;
+         }
+
+         if (bytes == 0) {
+            break;
+         }
+
+         total_read += bytes;
+      } while (total_read < size);
+
+      text[total_read] = '\0';
+      text += total_read;
+      if (return_file_name) {
+         size_t line_size = sprintf(text, "\n#line %d \"", return_line);
+         text += line_size;
+         strcpy(text, return_file_name);
+         text += return_file_name_len;
+         strcpy(text, "\"\n");
+      }
+
+      error:;
+   }
+
+   fclose(fp);
+
+   return final_text;
+}
+
+static char *relative_path_stack[16] = {0};
+static char *absolute_path_stack[16] = {0};
+
+#include "compiler/glsl/glcpp/glcpp-parse.h"
+
+const char *
+_mesa_lookup_shader_include(void *locp, struct gl_context *ctx, char *path,
+                            bool error_check) {
+   struct YYLTYPE *locp_c = locp;
+   struct shader_includes *ShaderIncludes = ctx->Shared->ShaderIncludes;
+   assert(ShaderIncludes->relative_path_cursor < 16);
+
+   bool needs_free = false;
+   if (path[0] != '/' && ShaderIncludes->relative_path_cursor > 0) {
+      path = ralloc_asprintf(NULL, "%s/%s", relative_path_stack[
+         ShaderIncludes->relative_path_cursor - 1], path);
+      needs_free = true;
+   }
+
+   char *dir_path = strdup(path);
+   char *last_dir_slash = strrchr(dir_path, '/');
+   if (last_dir_slash) {
+      *last_dir_slash = '\0';
+   }
+   relative_path_stack[ShaderIncludes->relative_path_cursor] = dir_path;
+   absolute_path_stack[ShaderIncludes->relative_path_cursor] = strdup(path);
+   const char *source = load_text_file(NULL, path,
+                                       ShaderIncludes->relative_path_cursor >
+                                       0 ?
+                                       absolute_path_stack[
+                                          ShaderIncludes->relative_path_cursor -
+                                          1] : NULL,
+                                       locp_c->last_line);
+   ShaderIncludes->relative_path_cursor++;
+
+   if (needs_free) {
+      ralloc_free(path);
+   }
+
+   return source;
 }
 
 static char *
@@ -3693,7 +3793,7 @@ _mesa_IsNamedStringARB(GLint namelen, const GLchar *name)
 
    char *name_cp = copy_string(ctx, name, namelen, "");
 
-   const char *source = _mesa_lookup_shader_include(ctx, name_cp, false);
+   const char *source = _mesa_lookup_shader_include(NULL, ctx, name_cp, false);
    free(name_cp);
 
    if (!source)
@@ -3713,7 +3813,7 @@ _mesa_GetNamedStringARB(GLint namelen, const GLchar *name, GLsizei bufSize,
    if (!name_cp)
       return;
 
-   const char *source = _mesa_lookup_shader_include(ctx, name_cp, true);
+   const char *source = _mesa_lookup_shader_include(NULL, ctx, name_cp, true);
    if (!source) {
       _mesa_error(ctx, GL_INVALID_OPERATION,
                   "%s(no string associated with path %s)", caller, name_cp);
@@ -3741,7 +3841,7 @@ _mesa_GetNamedStringivARB(GLint namelen, const GLchar *name,
    if (!name_cp)
       return;
 
-   const char *source = _mesa_lookup_shader_include(ctx, name_cp, true);
+   const char *source = _mesa_lookup_shader_include(NULL, ctx, name_cp, true);
    if (!source) {
       _mesa_error(ctx, GL_INVALID_OPERATION,
                   "%s(no string associated with path %s)", caller, name_cp);

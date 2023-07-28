@@ -60,8 +60,6 @@ standalone_new_program(UNUSED struct gl_context *ctx, gl_shader_stage stage,
 
 void initialize_context_to_defaults(struct gl_context *ctx, gl_api api)
 {
-   memset(ctx, 0, sizeof(*ctx));
-
    ctx->API = api;
 
    ctx->Extensions.dummy_true = true;

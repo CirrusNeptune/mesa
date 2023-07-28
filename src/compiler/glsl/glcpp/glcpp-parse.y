@@ -33,7 +33,7 @@
 #include "util/strndup.h"
 
 const char *
-_mesa_lookup_shader_include(struct gl_context *ctx, char *path,
+_mesa_lookup_shader_include(struct YYLTYPE *locp, struct gl_context *ctx, char *path,
                             bool error_check);
 
 size_t
@@ -364,7 +364,7 @@ control_line_success:
       char *path = strndup(start + 1, strlen(start + 1) - 1);
 
       const char *shader =
-         _mesa_lookup_shader_include(parser->gl_ctx, path, false);
+         _mesa_lookup_shader_include(&@1, parser->gl_ctx, path, false);
       free(path);
 
       if (!shader)

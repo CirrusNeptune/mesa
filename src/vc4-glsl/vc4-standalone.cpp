@@ -358,7 +358,7 @@ static void
 compile_shader(struct gl_context *ctx, struct gl_shader *shader)
 {
    _mesa_glsl_compile_shader(ctx, shader, options->dump_ast,
-                             options->dump_hir, true);
+                             options->dump_hir, false);
 
    /* Print out the resulting IR */
    if (shader->CompileStatus == COMPILE_SUCCESS && options->dump_lir) {
@@ -478,7 +478,11 @@ standalone_compile_shader(const struct standalone_options *_options,
       else
          goto fail;
 
-      const char *source = load_text_file(whole_program, files[i]);
+      const char *source = ralloc_asprintf(whole_program,
+                                           "#version 430\n"
+                                           "#extension GL_ARB_shading_language_include : require\n"
+                                           "#include \"%s\"\n", files[i]);
+      //const char *source = load_text_file(whole_program, files[i]);
       if (source == NULL) {
          printf("File \"%s\" does not exist.\n", files[i]);
          exit(EXIT_FAILURE);

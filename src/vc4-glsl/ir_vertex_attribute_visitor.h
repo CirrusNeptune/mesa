@@ -32,8 +32,9 @@
 extern "C" {
 #endif
 
-extern void
+extern unsigned
 extract_vertex_attributes_from_ir(struct pipe_vertex_element elements[16],
+                                  unsigned vertex_element_sizes[16],
                                   struct exec_list *instructions);
 
 #ifdef __cplusplus
