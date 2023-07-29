@@ -3563,6 +3563,7 @@ load_text_file(void *ctx, const char *file_name, const char *return_file_name,
 static char *relative_path_stack[16] = {0};
 static char *absolute_path_stack[16] = {0};
 
+typedef struct glcpp_parser glcpp_parser_t;
 #include "compiler/glsl/glcpp/glcpp-parse.h"
 
 const char *
