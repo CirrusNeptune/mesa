@@ -23,7 +23,7 @@ project(
   ['c', 'cpp'],
   version : files('VERSION'),
   license : 'MIT',
-  meson_version : '>= 1.0.1',
+  meson_version : '>= 0.60',
   default_options : ['buildtype=debugoptimized', 'b_ndebug=if-release', 'c_std=c11', 'cpp_std=c++17', 'rust_std=2021',
                      'vc4-glsl=enabled']
 )
@@ -104,8 +104,10 @@ endif
 # Default shared glapi off for windows, on elsewhere.
 with_shared_glapi = get_option('shared-glapi') \
   .disable_auto_if(host_machine.system() == 'windows') \
-  .disable_if(with_vc4_glsl) \
   .allowed()
+if with_vc4_glsl
+  with_shared_glapi = false
+endif
 
 with_opengl = get_option('opengl')
 
