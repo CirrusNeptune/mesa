@@ -3,3 +3,7 @@
 *.pyo
 *.out
 /build
+Cargo.lock
+target
+.idea
+.DS_Store

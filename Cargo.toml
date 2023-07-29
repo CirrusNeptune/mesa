@@ -1,0 +1,8 @@
+[package]
+name = "vc4-mesa-compiler"
+version = "0.1.0"
+authors = ["Cirrus <cirrus.neptune@protonmail.com>"]
+edition = "2021"
+
+[build-dependencies]
+meson = "1.0.0"

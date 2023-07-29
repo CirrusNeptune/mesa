@@ -166,19 +166,53 @@ static void output_uniform_parameter(FILE *out,
       }
       if (parameter->ValueOffset <= index &&
           index < parameter->ValueOffset + parameter->Size) {
-         switch (parameter->DataType) {
-            case GL_FLOAT_MAT4:
-               fprintf(out,
-                       "            ShaderUniform::Constant(qpu::transmute_f32(%s.col(%u)[%u])),\n",
-                       parameter->Name, p - base_p,
-                       index - parameter->ValueOffset);
+         switch (parameter->Type) {
+            case PROGRAM_STATE_VAR:
                return;
-            case GL_FLOAT_VEC4:
-               fprintf(out,
-                       "            ShaderUniform::Constant(qpu::transmute_f32(%s[%u])),\n",
-                       parameter->Name,
-                       index - parameter->ValueOffset);
-               return;
+            case PROGRAM_UNIFORM:
+               switch (parameter->DataType) {
+                  case GL_FLOAT_MAT4:
+                  case GL_FLOAT_MAT3:
+                  case GL_FLOAT_MAT2:
+                     fprintf(out,
+                             "            ShaderUniform::Constant(qpu::transmute_f32(%s.col(%u)[%u])),\n",
+                             parameter->Name, p - base_p,
+                             index - parameter->ValueOffset);
+                     return;
+                  case GL_FLOAT_VEC4:
+                  case GL_FLOAT_VEC3:
+                  case GL_FLOAT_VEC2:
+                     fprintf(out,
+                             "            ShaderUniform::Constant(qpu::transmute_f32(%s[%u])),\n",
+                             parameter->Name,
+                             index - parameter->ValueOffset);
+                     return;
+                  case GL_FLOAT:
+                     fprintf(out,
+                             "            ShaderUniform::Constant(qpu::transmute_f32(%s)),\n",
+                             parameter->Name);
+                     return;
+                  case GL_INT_VEC4:
+                  case GL_INT_VEC3:
+                  case GL_INT_VEC2:
+                  case GL_UNSIGNED_INT_VEC4:
+                  case GL_UNSIGNED_INT_VEC3:
+                  case GL_UNSIGNED_INT_VEC2:
+                     fprintf(out,
+                             "            ShaderUniform::Constant(%s[%u]),\n",
+                             parameter->Name,
+                             index - parameter->ValueOffset);
+                     return;
+                  case GL_INT:
+                  case GL_UNSIGNED_INT:
+                     fprintf(out,
+                             "            ShaderUniform::Constant(%s as _),\n",
+                             parameter->Name);
+                     return;
+                  default:
+                     break;
+               }
+               break;
             default:
                break;
          }
@@ -188,9 +222,10 @@ static void output_uniform_parameter(FILE *out,
    assert(0);
 }
 
-static void output_uniforms(FILE *out,
+static void output_uniforms(FILE *out, enum pipe_shader_type shader_type,
                             const struct vc4_shader_uniform_info *uniforms,
-                            const struct gl_program_parameter_list *parameters) {
+                            const struct gl_program_parameter_list *parameters,
+                            const struct gl_shader_program_data *prog_data) {
    for (unsigned i = 0; i < uniforms->count; ++i) {
       const enum quniform_contents contents = uniforms->contents[i];
       const uint32_t data = uniforms->data[i];
@@ -214,11 +249,23 @@ static void output_uniforms(FILE *out,
             output_uniform_parameter(out, parameters, data);
             break;
          case QUNIFORM_TEXTURE_CONFIG_P0:
+            for (unsigned r = 0; r < prog_data->NumProgramResourceList; ++r) {
+               const struct gl_program_resource *ProgramResourceList = &prog_data->ProgramResourceList[r];
+               if (ProgramResourceList->Type == GL_UNIFORM) {
+                  const struct gl_uniform_storage *uni_storage = ProgramResourceList->Data;
+                  if (glsl_get_base_type(uni_storage->type) == GLSL_TYPE_SAMPLER &&
+                     uni_storage->opaque[shader_type].active &&
+                     uni_storage->opaque[shader_type].index == data) {
+                     fprintf(out,
+                             "            ShaderUniform::Texture(%s),\n", uni_storage->name.string);
+                     break;
+                  }
+               }
+            }
+            break;
          case QUNIFORM_TEXTURE_CONFIG_P1:
          case QUNIFORM_TEXTURE_CONFIG_P2:
          case QUNIFORM_TEXTURE_FIRST_LEVEL:
-            fprintf(out,
-                    "        ShaderUniform::Texture(TextureUniform { buffer: ??, config: TextureConfigUniform {} }),\n");
             break;
          default:
             if (contents < ARRAY_SIZE(quniform_names) &&
@@ -235,12 +282,15 @@ static void output_uniforms(FILE *out,
 }
 
 static void output_uniform_args(FILE *out,
-                            const struct gl_program_parameter_list *parameters_tup[2]) {
+                                const struct gl_program_parameter_list *parameters_tup[2],
+                                const struct gl_shader_program_data *prog_data) {
    uint32_t visited_uniforms = 0;
    for (unsigned i = 0; i < 2; ++i) {
       const struct gl_program_parameter_list *parameters = parameters_tup[i];
       for (unsigned p = 0; p < parameters->NumParameters; ++p) {
          const struct gl_program_parameter *parameter = &parameters->Parameters[p];
+         if (parameter->Type != PROGRAM_UNIFORM)
+            continue;
          const uint32_t this_uniform_mask = 1 << parameter->UniformStorageIndex;
          if (!(visited_uniforms & this_uniform_mask)) {
             visited_uniforms |= this_uniform_mask;
@@ -248,12 +298,61 @@ static void output_uniform_args(FILE *out,
                case GL_FLOAT_MAT4:
                   fprintf(out, ", %s: &glam::Mat4", parameter->Name);
                   break;
+               case GL_FLOAT_MAT3:
+                  fprintf(out, ", %s: &glam::Mat3", parameter->Name);
+                  break;
+               case GL_FLOAT_MAT2:
+                  fprintf(out, ", %s: &glam::Mat2", parameter->Name);
+                  break;
                case GL_FLOAT_VEC4:
                   fprintf(out, ", %s: &glam::Vec4", parameter->Name);
+                  break;
+               case GL_FLOAT_VEC3:
+                  fprintf(out, ", %s: &glam::Vec3", parameter->Name);
+                  break;
+               case GL_FLOAT_VEC2:
+                  fprintf(out, ", %s: &glam::Vec2", parameter->Name);
+                  break;
+               case GL_FLOAT:
+                  fprintf(out, ", %s: f32", parameter->Name);
+                  break;
+               case GL_INT_VEC4:
+                  fprintf(out, ", %s: &glam::IVec4", parameter->Name);
+                  break;
+               case GL_INT_VEC3:
+                  fprintf(out, ", %s: &glam::IVec3", parameter->Name);
+                  break;
+               case GL_INT_VEC2:
+                  fprintf(out, ", %s: &glam::IVec2", parameter->Name);
+                  break;
+               case GL_INT:
+                  fprintf(out, ", %s: i32", parameter->Name);
+                  break;
+               case GL_UNSIGNED_INT_VEC4:
+                  fprintf(out, ", %s: &glam::UVec4", parameter->Name);
+                  break;
+               case GL_UNSIGNED_INT_VEC3:
+                  fprintf(out, ", %s: &glam::UVec3", parameter->Name);
+                  break;
+               case GL_UNSIGNED_INT_VEC2:
+                  fprintf(out, ", %s: &glam::UVec2", parameter->Name);
+                  break;
+               case GL_UNSIGNED_INT:
+                  fprintf(out, ", %s: u32", parameter->Name);
                   break;
                default:
                   break;
             }
+         }
+      }
+   }
+
+   for (unsigned p = 0; p < prog_data->NumProgramResourceList; ++p) {
+      const struct gl_program_resource *ProgramResourceList = &prog_data->ProgramResourceList[p];
+      if (ProgramResourceList->Type == GL_UNIFORM) {
+         const struct gl_uniform_storage *uni_storage = ProgramResourceList->Data;
+         if (glsl_get_base_type(uni_storage->type) == GLSL_TYPE_SAMPLER) {
+            fprintf(out, ", %s: &TextureUniform", uni_storage->name.string);
          }
       }
    }
@@ -413,25 +512,24 @@ int main(int argc, char **argv) {
 
    FILE *fout = fopen(rs_path, "w");
 
-   fprintf(fout, "#![allow(unused_imports)]\n"
+   fprintf(fout, "#![allow(unused_imports, nonstandard_style)]\n"
                  "use super::ShaderNode;\n"
                  "use rpi_drm::{Buffer, CommandEncoder, ShaderAttribute, ShaderUniform, TextureUniform};\n"
-                 "use vc4_drm::cl::{\n"
-                 "    AttributeRecord, CompareFunction, IndexType, PrimitiveMode, TextureConfigUniform,\n"
-                 "    TextureDataType, TextureMagFilterType, TextureMinFilterType, TextureWrapType,\n"
-                 "};\n"
+                 "use vc4_drm::cl::AttributeRecord;\n"
                  "use vc4_drm::{glam, qpu};\n\n");
 
    output_compiled_shader(fout, "CS", vc4->prog.cs);
    output_compiled_shader(fout, "VS", vc4->prog.vs);
    output_compiled_shader(fout, "FS", vc4->prog.fs);
 
-   fprintf(fout, "pub fn bind(encoder: &mut CommandEncoder, cs_vbo: Buffer, vs_vbo: Buffer");
+   fprintf(fout, "pub fn bind(encoder: &mut CommandEncoder");
+   if (num_vertex_elements)
+      fprintf(fout, ", cs_vbo: &Buffer, vs_vbo: &Buffer");
    const struct gl_program_parameter_list *parameters_tup[2] = {
       shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->Parameters,
       shader_program->_LinkedShaders[MESA_SHADER_FRAGMENT]->Program->Parameters
    };
-   output_uniform_args(fout, parameters_tup);
+   output_uniform_args(fout, parameters_tup, shader_program->data);
    fprintf(fout, ") {\n"
                  "    encoder.bind_shader(\n"
                  "        %s,\n"
@@ -474,7 +572,7 @@ int main(int argc, char **argv) {
          const unsigned element_size = vertex_element_sizes[location];
          if (i < vc4->prog.cs->vattrs_live) {
             fprintf(fout, "            ShaderAttribute {\n"
-                          "                buffer: cs_vbo.clone(),\n"
+                          "                buffer: cs_vbo,\n"
                           "                record: AttributeRecord {\n"
                           "                    address: %u,\n"
                           "                    number_of_bytes_minus_1: %u,\n"
@@ -490,7 +588,7 @@ int main(int argc, char **argv) {
          }
          if (i < vc4->prog.vs->vattrs_live) {
             fprintf(fout, "            ShaderAttribute {\n"
-                          "                buffer: vs_vbo.clone(),\n"
+                          "                buffer: vs_vbo,\n"
                           "                record: AttributeRecord {\n"
                           "                    address: %u,\n"
                           "                    number_of_bytes_minus_1: %u,\n"
@@ -510,16 +608,19 @@ int main(int argc, char **argv) {
 
    fprintf(fout, "        ],\n"
                  "        &[\n");
-   output_uniforms(fout, &vc4->prog.fs->uniforms,
-                   shader_program->_LinkedShaders[MESA_SHADER_FRAGMENT]->Program->Parameters);
+   output_uniforms(fout, MESA_SHADER_FRAGMENT, &vc4->prog.fs->uniforms,
+                   shader_program->_LinkedShaders[MESA_SHADER_FRAGMENT]->Program->Parameters,
+                   shader_program->data);
    fprintf(fout, "        ],\n"
                  "        &[\n");
-   output_uniforms(fout, &vc4->prog.vs->uniforms,
-                   shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->Parameters);
+   output_uniforms(fout, MESA_SHADER_VERTEX, &vc4->prog.vs->uniforms,
+                   shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->Parameters,
+                   shader_program->data);
    fprintf(fout, "        ],\n"
                  "        &[\n");
-   output_uniforms(fout, &vc4->prog.cs->uniforms,
-                   shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->Parameters);
+   output_uniforms(fout, MESA_SHADER_VERTEX, &vc4->prog.cs->uniforms,
+                   shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->Parameters,
+                   shader_program->data);
    fprintf(fout, "        ],\n"
                  "    );\n"
                  "}\n");
