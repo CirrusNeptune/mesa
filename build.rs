@@ -12,7 +12,7 @@ fn run_meson(lib: &str, dir: &str) {
     if !is_configured(lib, dir) {
         run_command(lib, "meson", &[".", dir]);
     } else if !does_source_dir_match(lib, dir) {
-        run_command(lib, "meson", &["reconfigure", ".", dir]);
+        run_command(lib, "meson", &["configure", dir]);
     }
     run_command(dir, "ninja", &[]);
 }
