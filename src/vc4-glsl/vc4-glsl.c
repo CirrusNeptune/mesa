@@ -426,7 +426,7 @@ int main(int argc, char **argv) {
    unsigned vertex_element_sizes[16] = {0};
    unsigned num_vertex_elements = extract_vertex_attributes_from_ir(
       vertex_elements, vertex_element_sizes,
-      shader_program->Shaders[0]->ir);
+      shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->ir);
 
    struct gl_extensions extensions = {0};
    st_init_limits(&screen->base, &local_ctx.Const, &extensions,
