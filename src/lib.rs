@@ -1,7 +1,7 @@
 use std::ffi::OsStr;
-use std::fmt::Display;
+use std::fmt::Debug;
 
-pub fn compile_shader<S: AsRef<OsStr> + Display>(
+pub fn compile_shader<S: AsRef<OsStr> + Debug>(
     vert_path: S,
     frag_path: S,
     rs_out_path: S,
@@ -19,7 +19,7 @@ pub fn compile_shader<S: AsRef<OsStr> + Display>(
             if !out.status.success() {
                 if let Ok(stderr) = String::from_utf8(output.unwrap().stderr) {
                     return Err(format!(
-                        "{} {} {} {}\n{}",
+                        "{} {:?} {:?} {:?}\n{}",
                         env!("VC4_COMPILER_BIN"),
                         vert_path,
                         frag_path,
@@ -31,7 +31,7 @@ pub fn compile_shader<S: AsRef<OsStr> + Display>(
         }
         Err(e) => {
             return Err(format!(
-                "{} {} {} {}\n{}",
+                "{} {:?} {:?} {:?}\n{}",
                 env!("VC4_COMPILER_BIN"),
                 vert_path,
                 frag_path,
