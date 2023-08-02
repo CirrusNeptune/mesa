@@ -13,6 +13,7 @@ fn run_meson(lib: &str, dir: &str) {
         run_command(lib, "meson", &[".", dir]);
     } else if !does_source_dir_match(lib, dir) {
         run_command(lib, "meson", &["configure", dir]);
+        assert!(does_source_dir_match(lib, dir));
     }
     run_command(dir, "ninja", &[]);
 }
