@@ -10,9 +10,9 @@ pub fn build(project_dir: &str, build_dir: &str) {
 
 fn run_meson(lib: &str, dir: &str) {
     if !is_configured(dir) {
-        run_command(lib, "meson", &[".", dir]);
+        run_command(lib, "meson", &["setup", ".", dir]);
     } else if !does_source_dir_match(lib, dir) {
-        run_command(lib, "meson", &[".", dir]);
+        run_command(lib, "meson", &["setup", "--reconfigure", ".", dir]);
         assert!(does_source_dir_match(lib, dir));
     }
     run_command(dir, "ninja", &[]);
