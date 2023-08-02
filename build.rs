@@ -9,7 +9,7 @@ pub fn build(project_dir: &str, build_dir: &str) {
 }
 
 fn run_meson(lib: &str, dir: &str) {
-    if !is_configured(lib, dir) {
+    if !is_configured(dir) {
         run_command(lib, "meson", &[".", dir]);
     } else if !does_source_dir_match(lib, dir) {
         run_command(lib, "meson", &["configure", dir]);
@@ -27,14 +27,14 @@ fn run_command(dir: &str, name: &str, args: &[&str]) {
     assert!(status.success());
 }
 
-fn is_configured(lib: &str, dir: &str) -> bool {
+fn is_configured(dir: &str) -> bool {
     let mut path = PathBuf::from(dir);
     path.push("build.ninja");
     return path.as_path().exists();
 }
 
 fn does_source_dir_match(lib: &str, dir: &str) -> bool {
-    let mut path = PathBuf::from(dir)
+    let path = PathBuf::from(dir)
         .join("meson-info")
         .join("meson-info.json");
     let meson_json_f = std::fs::File::open(path.as_path()).unwrap();
