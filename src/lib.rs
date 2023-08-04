@@ -1,3 +1,4 @@
+use std::env;
 use std::ffi::OsStr;
 use std::fmt::Debug;
 
@@ -8,7 +9,10 @@ pub fn compile_shader<S: AsRef<OsStr> + Debug>(
 ) -> Result<(), String> {
     use std::process::Command;
 
-    let output = Command::new(env!("VC4_COMPILER_BIN"))
+    let vc4_compiler_bin =
+        env::var("VC4_COMPILER_BIN").unwrap_or_else(|_| env!("VC4_COMPILER_BIN").to_string());
+
+    let output = Command::new(&vc4_compiler_bin)
         .arg(&vert_path)
         .arg(&frag_path)
         .arg(&rs_out_path)
@@ -20,11 +24,7 @@ pub fn compile_shader<S: AsRef<OsStr> + Debug>(
                 if let Ok(stderr) = String::from_utf8(output.unwrap().stderr) {
                     return Err(format!(
                         "{} {:?} {:?} {:?}\n{}",
-                        env!("VC4_COMPILER_BIN"),
-                        vert_path,
-                        frag_path,
-                        rs_out_path,
-                        stderr
+                        vc4_compiler_bin, vert_path, frag_path, rs_out_path, stderr
                     ));
                 }
             }
@@ -32,7 +32,7 @@ pub fn compile_shader<S: AsRef<OsStr> + Debug>(
         Err(e) => {
             return Err(format!(
                 "{} {:?} {:?} {:?}\n{}",
-                env!("VC4_COMPILER_BIN"),
+                vc4_compiler_bin,
                 vert_path,
                 frag_path,
                 rs_out_path,

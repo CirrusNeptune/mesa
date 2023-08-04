@@ -422,11 +422,13 @@ int main(int argc, char **argv) {
       return 1;
    }
 
+   struct gl_linked_shader *linked_vertex = shader_program->_LinkedShaders[MESA_SHADER_VERTEX];
+   struct gl_linked_shader *linked_fragment = shader_program->_LinkedShaders[MESA_SHADER_FRAGMENT];
+
    struct pipe_vertex_element vertex_elements[16] = {0};
    unsigned vertex_element_sizes[16] = {0};
    unsigned num_vertex_elements = extract_vertex_attributes_from_ir(
-      vertex_elements, vertex_element_sizes,
-      shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->ir);
+      vertex_elements, vertex_element_sizes, linked_vertex->ir);
 
    struct gl_extensions extensions = {0};
    st_init_limits(&screen->base, &local_ctx.Const, &extensions,
@@ -445,13 +447,13 @@ int main(int argc, char **argv) {
    st_link_shader(&local_ctx, shader_program);
 
    {
-      struct st_variant *variant = &shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->variants[0];
+      struct st_variant *variant = &linked_vertex->Program->variants[0];
       struct vc4_uncompiled_shader *shader = variant->driver_shader;
       pctx->bind_vs_state(pctx, shader);
    }
 
    {
-      struct st_variant *variant = &shader_program->_LinkedShaders[MESA_SHADER_FRAGMENT]->Program->variants[0];
+      struct st_variant *variant = &linked_fragment->Program->variants[0];
       struct vc4_uncompiled_shader *shader = variant->driver_shader;
       pctx->bind_fs_state(pctx, shader);
    }
@@ -467,7 +469,7 @@ int main(int argc, char **argv) {
 
    {
       struct pipe_blend_state blend_state = {0};
-      blend_state.rt[0].blend_enable = 1;
+      blend_state.rt[0].blend_enable = 0;
       blend_state.rt[0].rgb_func = PIPE_BLEND_ADD;
       blend_state.rt[0].rgb_src_factor = PIPE_BLENDFACTOR_ONE;
       blend_state.rt[0].rgb_dst_factor = PIPE_BLENDFACTOR_ONE;
@@ -502,7 +504,7 @@ int main(int argc, char **argv) {
    cbuf0.format = cbuf0_res.format;
    vc4->framebuffer.cbufs[0] = &cbuf0;
 
-   if ((shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->info.outputs_written & VARYING_BIT_POS) == 0) {
+   if ((linked_vertex->Program->info.outputs_written & VARYING_BIT_POS) == 0) {
       fprintf(stderr, "%s does not write to gl_Position\n", files[0]);
       return 1;
    }
@@ -526,8 +528,8 @@ int main(int argc, char **argv) {
    if (num_vertex_elements)
       fprintf(fout, ", cs_vbo: &Buffer, vs_vbo: &Buffer");
    const struct gl_program_parameter_list *parameters_tup[2] = {
-      shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->Parameters,
-      shader_program->_LinkedShaders[MESA_SHADER_FRAGMENT]->Program->Parameters
+      linked_vertex->Program->Parameters,
+      linked_fragment->Program->Parameters
    };
    output_uniform_args(fout, parameters_tup, shader_program->data);
    fprintf(fout, ") {\n"
@@ -542,7 +544,7 @@ int main(int argc, char **argv) {
            vc4->prog.fs->num_inputs);
 
    if (num_vertex_elements) {
-      uint64_t inputs_read = shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->info.inputs_read;
+      uint64_t inputs_read = linked_vertex->Program->info.inputs_read;
       inputs_read &= 0x7FFF8000;
 
       unsigned vs_vpm_stride = 0, cs_vpm_stride = 0;
@@ -609,17 +611,17 @@ int main(int argc, char **argv) {
    fprintf(fout, "        ],\n"
                  "        &[\n");
    output_uniforms(fout, MESA_SHADER_FRAGMENT, &vc4->prog.fs->uniforms,
-                   shader_program->_LinkedShaders[MESA_SHADER_FRAGMENT]->Program->Parameters,
+                   linked_fragment->Program->Parameters,
                    shader_program->data);
    fprintf(fout, "        ],\n"
                  "        &[\n");
    output_uniforms(fout, MESA_SHADER_VERTEX, &vc4->prog.vs->uniforms,
-                   shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->Parameters,
+                   linked_vertex->Program->Parameters,
                    shader_program->data);
    fprintf(fout, "        ],\n"
                  "        &[\n");
    output_uniforms(fout, MESA_SHADER_VERTEX, &vc4->prog.cs->uniforms,
-                   shader_program->_LinkedShaders[MESA_SHADER_VERTEX]->Program->Parameters,
+                   linked_vertex->Program->Parameters,
                    shader_program->data);
    fprintf(fout, "        ],\n"
                  "    );\n"
