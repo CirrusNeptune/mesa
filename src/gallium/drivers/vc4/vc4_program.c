@@ -747,6 +747,25 @@ emit_fragcoord_input(struct vc4_compile *c, int attr)
         c->inputs[attr * 4 + 3] = qir_RCP(c, qir_FRAG_W(c));
 }
 
+static void
+emit_fragment_color_load(struct vc4_compile *c, int attr)
+{
+        // TODO: Figure out a way to support MSAA?
+        assert(!c->msaa_per_sample_output);
+
+        if (c->color_reads[0].file == QFILE_NULL) {
+           c->color_reads[0] = qir_TLB_COLOR_READ(c);
+        }
+
+        enum pipe_format color_format = c->fs_key->color_format;
+        const uint8_t *format_swiz = vc4_get_format_swizzle(color_format);
+
+        for (int i = 0; i < 4; i++) {
+           c->inputs[attr * 4 + i] = qir_UNPACK_8_F(c, c->color_reads[0],
+                                                    format_swiz[i]);
+        }
+}
+
 static struct qreg
 emit_fragment_varying(struct vc4_compile *c, gl_varying_slot slot,
                       uint8_t swizzle)
@@ -1585,6 +1604,8 @@ ntq_setup_inputs(struct vc4_compile *c)
                 if (c->stage == QSTAGE_FRAG) {
                         if (var->data.location == VARYING_SLOT_POS) {
                                 emit_fragcoord_input(c, loc);
+                        } else if (var->data.location == VARYING_SLOT_COLOR_LOAD) {
+                                emit_fragment_color_load(c, loc);
                         } else if (util_varying_is_point_coord(var->data.location,
                                                                c->fs_key->point_sprite_mask)) {
                                 c->inputs[loc * 4 + 0] = c->point_x;

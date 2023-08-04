@@ -1321,6 +1321,8 @@ builtin_variable_generator::generate_fs_special_vars()
       add_input(VARYING_SLOT_POS, vec4_t, frag_coord_precision, "gl_FragCoord");
    }
 
+   add_input(VARYING_SLOT_COLOR_LOAD, vec4_t, frag_coord_precision, "gl_ColorLoad");
+
    if (this->state->consts->GLSLFrontFacingIsSysVal) {
       var = add_system_value(SYSTEM_VALUE_FRONT_FACE, bool_t, "gl_FrontFacing");
       var->data.interpolation = INTERP_MODE_FLAT;
