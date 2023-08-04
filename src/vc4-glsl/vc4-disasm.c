@@ -379,6 +379,8 @@ print_add_op(FILE *out, uint64_t inst) {
    if (inst & QPU_SF)
       fprintf(out, ".sf");
 
+   vc4_glsl_qpu_disasm_unpack(out, QPU_GET_FIELD(inst, QPU_UNPACK));
+
    if (op_add != QPU_A_NOP)
       vc4_glsl_qpu_disasm_cond(out, cond);
 
