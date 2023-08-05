@@ -222,7 +222,7 @@ calculate_deps(struct schedule_setup_state *state, struct schedule_node *n)
 
         case QOP_TLB_COLOR_READ:
         case QOP_MS_MASK:
-                add_write_dep(dir, &state->last_tlb, n);
+                //add_write_dep(dir, &state->last_tlb, n);
                 break;
 
         default:
@@ -270,7 +270,8 @@ calculate_deps(struct schedule_setup_state *state, struct schedule_node *n)
 
 static void
 calculate_forward_deps(struct vc4_compile *c, void *mem_ctx,
-                       struct list_head *schedule_list)
+                       struct list_head *schedule_list,
+                       struct schedule_node *final_thread_sw)
 {
         struct schedule_setup_state state;
 
@@ -379,6 +380,10 @@ calculate_forward_deps(struct vc4_compile *c, void *mem_ctx,
 
                 case QOP_UNIFORMS_RESET:
                         add_write_dep(state.dir, &state.last_uniforms_reset, n);
+                        break;
+
+                case QOP_TLB_COLOR_READ:
+                        add_dep(state.dir, final_thread_sw, n);
                         break;
 
                 default:
@@ -672,6 +677,36 @@ schedule_instructions(struct vc4_compile *c,
         }
 }
 
+static void assert_no_color_read(struct schedule_node *n) {
+        struct set *seen = _mesa_pointer_set_create(NULL);
+
+        struct util_dynarray stack;
+        util_dynarray_init(&stack, NULL);
+
+        util_dynarray_append(&stack, struct schedule_node *, n);
+
+        while (stack.size != 0) {
+                n = util_dynarray_pop(&stack, struct schedule_node *);
+
+                assert(n->inst->op != QOP_TLB_COLOR_READ &&
+                       "Unable to schedule color read! "
+                       "Avoid texture sampler deps!");
+                _mesa_set_add(seen, n);
+
+                util_dynarray_foreach(&((struct dag_node *) n)->edges,
+                                      struct dag_edge,
+                                      edge) {
+                        if (!_mesa_set_search(seen, edge->child)) {
+                                util_dynarray_append(&stack, struct dag_node *,
+                                                     edge->child);
+                        }
+                }
+        }
+
+        util_dynarray_fini(&stack);
+        ralloc_free(seen);
+}
+
 static void
 qir_schedule_instructions_block(struct vc4_compile *c,
                                 struct qblock *block)
@@ -686,6 +721,8 @@ qir_schedule_instructions_block(struct vc4_compile *c,
         struct list_head setup_list;
         list_inithead(&setup_list);
 
+        struct schedule_node *final_thread_sw = NULL;
+
         /* Wrap each instruction in a scheduler structure. */
         qir_for_each_inst_safe(inst, block) {
                 struct schedule_node *n = rzalloc(state, struct schedule_node);
@@ -697,12 +734,18 @@ qir_schedule_instructions_block(struct vc4_compile *c,
 
                 if (inst->dst.file == QFILE_TEMP)
                         state->temp_writes[inst->dst.index]++;
+
+                if (inst->op == QOP_THRSW)
+                        final_thread_sw = n;
         }
 
         /* Dependencies tracked top-to-bottom. */
-        calculate_forward_deps(c, state, &setup_list);
+        calculate_forward_deps(c, state, &setup_list, final_thread_sw);
         /* Dependencies tracked bottom-to-top. */
         calculate_reverse_deps(c, state, &setup_list);
+
+        if (final_thread_sw)
+                assert_no_color_read(final_thread_sw);
 
         dag_traverse_bottom_up(state->dag, compute_delay, NULL);
 

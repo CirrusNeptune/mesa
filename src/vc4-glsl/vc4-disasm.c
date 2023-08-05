@@ -252,8 +252,8 @@ static const char *qpu_cond_branch[] = {
    [QPU_COND_BRANCH_ALWAYS] = "",
 };
 
-#define DESC(array, index)                                        \
-        ((index >= ARRAY_SIZE(array) || !(array)[index]) ?         \
+#define DESC(array, index)                                           \
+        (((index) >= ARRAY_SIZE(array) || !(array)[index]) ?         \
          "???" : (array)[index])
 
 static const char *
@@ -266,6 +266,8 @@ get_special_write_desc(int reg, bool is_a) {
             return "vr_setup";
          case QPU_W_VPM_ADDR:
             return "vr_addr";
+         default:
+            break;
       }
    }
 
@@ -327,7 +329,7 @@ print_alu_mux(FILE *out, uint32_t mux) {
 }
 
 static void
-print_alu_src(FILE *out, uint64_t inst, bool is_a, bool is_mul) {
+print_alu_src(FILE *out, uint64_t inst, bool is_a) {
    const char *file = is_a ? "a" : "b";
    uint32_t raddr = (is_a ?
                      QPU_GET_FIELD(inst, QPU_RADDR_A) :
@@ -393,9 +395,9 @@ print_add_op(FILE *out, uint64_t inst) {
    if (QPU_GET_FIELD(inst, QPU_RADDR_A) != QPU_W_NOP ||
        QPU_GET_FIELD(inst, QPU_RADDR_B) != QPU_W_NOP) {
       fprintf(out, ", ");
-      print_alu_src(out, inst, true, false);
+      print_alu_src(out, inst, true);
       fprintf(out, ", ");
-      print_alu_src(out, inst, false, false);
+      print_alu_src(out, inst, false);
    }
 
    fprintf(out, ")");
@@ -429,8 +431,6 @@ print_mul_op(FILE *out, uint64_t inst) {
 static void
 print_load_imm(FILE *out, uint64_t inst) {
    uint32_t imm = inst;
-   uint32_t waddr_add = QPU_GET_FIELD(inst, QPU_WADDR_ADD);
-   uint32_t waddr_mul = QPU_GET_FIELD(inst, QPU_WADDR_MUL);
    uint32_t cond_add = QPU_GET_FIELD(inst, QPU_COND_ADD);
    uint32_t cond_mul = QPU_GET_FIELD(inst, QPU_COND_MUL);
 

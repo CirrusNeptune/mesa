@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <sys/stat.h>
 #include "vc4/vc4_context.h"
 #include "main/consts_exts.h"
 #include "main/shader_types.h"
@@ -13,6 +14,7 @@ struct st_config_options;
 #include "state_tracker/st_extensions.h"
 #include "main/shared.h"
 #include "main/shaderapi.h"
+#include "util/sha1/sha1.h"
 
 static int
 vc4_simulator_get_param_ioctl(int fd, struct drm_vc4_get_param *args) {
@@ -243,7 +245,8 @@ static void output_uniforms(FILE *out, enum pipe_shader_type shader_type,
 
       switch (contents) {
          case QUNIFORM_CONSTANT:
-            fprintf(out, "            ShaderUniform::Constant(0x%08X),\n", data);
+            fprintf(out, "            ShaderUniform::Constant(0x%08X),\n",
+                    data);
             break;
          case QUNIFORM_UNIFORM:
             output_uniform_parameter(out, parameters, data);
@@ -253,11 +256,13 @@ static void output_uniforms(FILE *out, enum pipe_shader_type shader_type,
                const struct gl_program_resource *ProgramResourceList = &prog_data->ProgramResourceList[r];
                if (ProgramResourceList->Type == GL_UNIFORM) {
                   const struct gl_uniform_storage *uni_storage = ProgramResourceList->Data;
-                  if (glsl_get_base_type(uni_storage->type) == GLSL_TYPE_SAMPLER &&
-                     uni_storage->opaque[shader_type].active &&
-                     uni_storage->opaque[shader_type].index == data) {
+                  if (glsl_get_base_type(uni_storage->type) ==
+                      GLSL_TYPE_SAMPLER &&
+                      uni_storage->opaque[shader_type].active &&
+                      uni_storage->opaque[shader_type].index == data) {
                      fprintf(out,
-                             "            ShaderUniform::Texture(%s),\n", uni_storage->name.string);
+                             "            ShaderUniform::Texture(%s),\n",
+                             uni_storage->name.string);
                      break;
                   }
                }
@@ -291,7 +296,8 @@ static void output_uniform_args(FILE *out,
          const struct gl_program_parameter *parameter = &parameters->Parameters[p];
          if (parameter->Type != PROGRAM_UNIFORM)
             continue;
-         const uint32_t this_uniform_mask = 1 << parameter->UniformStorageIndex;
+         const uint32_t this_uniform_mask =
+            1 << parameter->UniformStorageIndex;
          if (!(visited_uniforms & this_uniform_mask)) {
             visited_uniforms |= this_uniform_mask;
             switch (parameter->DataType) {
@@ -358,27 +364,57 @@ static void output_uniform_args(FILE *out,
    }
 }
 
-static void output_compiled_shader(FILE *out, const char *name,
+static void output_compiled_shader(const char **shader_id,
+                                   const char *dir,
                                    const struct vc4_compiled_shader *cshader) {
    assert(cshader->bo->handle < shader_table_num);
    const struct shader_bo *shader = &shader_table[cshader->bo->handle];
-   fprintf(out, "const %s_ASM_CODE: [u64; %u] = qpu! {\n", name,
+
+   SHA1_CTX sha1;
+   SHA1Init(&sha1);
+   SHA1Update(&sha1, shader->data, shader->size);
+   uint8_t digest[SHA1_DIGEST_LENGTH];
+   SHA1Final(digest, &sha1);
+
+   *shader_id = ralloc_asprintf(NULL,
+                                "gen_%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
+                                digest[0], digest[1], digest[2], digest[3],
+                                digest[4], digest[5], digest[6], digest[7],
+                                digest[8], digest[9], digest[10], digest[11],
+                                digest[12], digest[13], digest[14],
+                                digest[15], digest[16], digest[17],
+                                digest[18], digest[19]);
+   char *shader_path = ralloc_asprintf(NULL, "%s%s.rs",
+                                       dir, *shader_id);
+
+   FILE *shader_f = fopen(shader_path, "w");
+   fprintf(shader_f,
+           "#![allow(unused_imports, nonstandard_style)]\n"
+           "use super::ShaderNode;\n"
+           "use vc4_drm::qpu;\n"
+           "const ASM_CODE: [u64; %u] = qpu! {\n",
            (unsigned) shader->size / 8);
-   vc4_glsl_qpu_disasm(out, shader->data, (int) shader->size / 8);
-   fprintf(out,
-           "};\npub static %s_ASM: ShaderNode = ShaderNode::new(&%s_ASM_CODE);\n\n",
-           name, name);
+   vc4_glsl_qpu_disasm(shader_f, shader->data, (int) shader->size / 8);
+   fprintf(shader_f,
+           "};\npub static ASM: ShaderNode = ShaderNode::new(&ASM_CODE);\n");
+   fclose(shader_f);
 }
 
 int main(int argc, char **argv) {
    if (argc < 4) {
-      fprintf(stderr, "Usage: %s <file>.vert <file>.frag <output>.rs\n", argv[0]);
+      fprintf(stderr, "Usage: %s <file>.vert <file>.frag <output>.rs\n",
+              argv[0]);
       return 1;
    }
 
-   char* vert_path = argv[1];
-   char* frag_path = argv[2];
-   char* rs_path = argv[3];
+   char *vert_path = argv[1];
+   char *frag_path = argv[2];
+   char *rs_path = argv[3];
+   char *rs_dir = strdup(rs_path);
+   char *slash = strrchr(rs_dir, '/');
+   if (slash)
+      *(slash + 1) = '\0';
+   char *obj_dir = ralloc_asprintf(NULL, "%sobjects/", rs_dir);
 
    struct vc4_context *vc4;
 
@@ -418,7 +454,8 @@ int main(int argc, char **argv) {
 
    if (!shader_program->data->LinkStatus) {
       if (strlen(shader_program->data->InfoLog))
-         fprintf(stderr, "Unable to link shaders: %s\n", shader_program->data->InfoLog);
+         fprintf(stderr, "Unable to link shaders: %s\n",
+                 shader_program->data->InfoLog);
       return 1;
    }
 
@@ -484,7 +521,9 @@ int main(int argc, char **argv) {
    }
 
    {
-      struct pipe_depth_stencil_alpha_state zsa_state = {0};
+      struct pipe_depth_stencil_alpha_state zsa_state = {
+         .depth_enabled = 1
+      };
       struct vc4_depth_stencil_alpha_state *zsa_state_obj = pctx->create_depth_stencil_alpha_state(
          pctx, &zsa_state);
       pctx->bind_depth_stencil_alpha_state(pctx, zsa_state_obj);
@@ -496,6 +535,27 @@ int main(int argc, char **argv) {
       pctx->bind_vertex_elements_state(pctx, vtx_state);
    }
 
+   struct pipe_resource tex_res = {0};
+   tex_res.format = PIPE_FORMAT_B8G8R8A8_UNORM;
+   {
+      struct pipe_sampler_view *views[VC4_MAX_TEXTURE_SAMPLERS];
+      struct pipe_sampler_state *states[VC4_MAX_TEXTURE_SAMPLERS];
+      for (unsigned i = 0; i < VC4_MAX_TEXTURE_SAMPLERS; ++i) {
+         views[i] = rzalloc_size(NULL, sizeof(struct vc4_sampler_view));
+         views[i]->texture = &tex_res;
+         views[i]->format = PIPE_FORMAT_B8G8R8A8_UNORM;
+         views[i]->swizzle_r = PIPE_SWIZZLE_X;
+         views[i]->swizzle_g = PIPE_SWIZZLE_Y;
+         views[i]->swizzle_b = PIPE_SWIZZLE_Z;
+         views[i]->swizzle_a = PIPE_SWIZZLE_W;
+         states[i] = rzalloc_size(NULL, sizeof(struct pipe_sampler_state));
+      }
+      pctx->set_sampler_views(pctx, PIPE_SHADER_FRAGMENT, 0,
+                              VC4_MAX_TEXTURE_SAMPLERS, 0, true, views);
+      pctx->bind_sampler_states(pctx, PIPE_SHADER_FRAGMENT, 0,
+                                VC4_MAX_TEXTURE_SAMPLERS, (void **) states);
+   }
+
    struct pipe_resource cbuf0_res = {0};
    cbuf0_res.format = PIPE_FORMAT_B8G8R8A8_UNORM;
    struct pipe_surface cbuf0 = {0};
@@ -504,7 +564,8 @@ int main(int argc, char **argv) {
    cbuf0.format = cbuf0_res.format;
    vc4->framebuffer.cbufs[0] = &cbuf0;
 
-   if ((linked_vertex->Program->info.outputs_written & VARYING_BIT_POS) == 0) {
+   if ((linked_vertex->Program->info.outputs_written & VARYING_BIT_POS) ==
+       0) {
       fprintf(stderr, "%s does not write to gl_Position\n", files[0]);
       return 1;
    }
@@ -515,14 +576,15 @@ int main(int argc, char **argv) {
    FILE *fout = fopen(rs_path, "w");
 
    fprintf(fout, "#![allow(unused_imports, nonstandard_style)]\n"
-                 "use super::ShaderNode;\n"
+                 "use super::objects;\n"
                  "use rpi_drm::{Buffer, CommandEncoder, ShaderAttribute, ShaderUniform, TextureUniform};\n"
                  "use vc4_drm::cl::AttributeRecord;\n"
                  "use vc4_drm::{glam, qpu};\n\n");
 
-   output_compiled_shader(fout, "CS", vc4->prog.cs);
-   output_compiled_shader(fout, "VS", vc4->prog.vs);
-   output_compiled_shader(fout, "FS", vc4->prog.fs);
+   const char *ids[3];
+   output_compiled_shader(&ids[0], obj_dir, vc4->prog.cs);
+   output_compiled_shader(&ids[1], obj_dir, vc4->prog.vs);
+   output_compiled_shader(&ids[2], obj_dir, vc4->prog.fs);
 
    fprintf(fout, "pub fn bind(encoder: &mut CommandEncoder");
    if (num_vertex_elements)
@@ -536,12 +598,12 @@ int main(int argc, char **argv) {
                  "    encoder.bind_shader(\n"
                  "        %s,\n"
                  "        %d,\n"
-                 "        *FS_ASM.handle.get().unwrap(),\n"
-                 "        *VS_ASM.handle.get().unwrap(),\n"
-                 "        *CS_ASM.handle.get().unwrap(),\n"
+                 "        *objects::%s::ASM.handle.get().unwrap(),\n"
+                 "        *objects::%s::ASM.handle.get().unwrap(),\n"
+                 "        *objects::%s::ASM.handle.get().unwrap(),\n"
                  "        &[\n",
-                 vc4->prog.fs->fs_threaded ? "false" : "true",
-           vc4->prog.fs->num_inputs);
+           vc4->prog.fs->fs_threaded ? "false" : "true",
+           vc4->prog.fs->num_inputs, ids[2], ids[1], ids[0]);
 
    if (num_vertex_elements) {
       uint64_t inputs_read = linked_vertex->Program->info.inputs_read;
