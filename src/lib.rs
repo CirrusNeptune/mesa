@@ -145,7 +145,7 @@ impl<'ast> Visit<'ast> for ObjVisitor {
 
 fn build_generated_mod(
     generated_dir: &PathBuf,
-    mod_path: PathBuf,
+    mod_path: &PathBuf,
 ) -> Result<HashSet<String>, String> {
     let mut gen_mod_f = fs::File::create(mod_path).unwrap();
     gen_mod_f
@@ -182,17 +182,13 @@ fn build_generated_mod(
     Ok(obj_set)
 }
 
-fn build_objects_mod(
-    objects_dir: &PathBuf,
-    mod_path: PathBuf,
-    obj_set: HashSet<String>,
-) -> Result<(), String> {
+fn build_objects_mod(mod_path: &PathBuf, obj_set: &HashSet<String>) -> Result<(), String> {
     let mut obj_mod_f = fs::File::create(mod_path).unwrap();
     obj_mod_f
         .write("#![allow(nonstandard_style)]\nuse super::ShaderNode;\n".as_bytes())
         .unwrap();
 
-    for obj in &obj_set {
+    for obj in obj_set {
         obj_mod_f
             .write(format!("pub mod {};\n", obj).as_bytes())
             .unwrap();
@@ -205,13 +201,33 @@ fn build_objects_mod(
                 .as_bytes(),
         )
         .unwrap();
-    for obj in &obj_set {
+    for obj in obj_set {
         obj_mod_f
             .write(format!("        {}::ASM.initialize(),\n", obj).as_bytes())
             .unwrap();
     }
     obj_mod_f.write("    );\n}\n".as_bytes()).unwrap();
 
+    Ok(())
+}
+
+fn prune_generated_dir(generated_dir: &PathBuf, shaders_dir: &PathBuf) -> Result<bool, String> {
+    let mut pruned_dir = false;
+    for_each_file_ext_in_dir(&generated_dir, "rs", |rs_path, _| {
+        let stem = rs_path.file_stem().unwrap();
+        if stem == "mod" {
+            return Ok(());
+        }
+        if !shaders_dir.join(rs_path.file_name().unwrap()).exists() {
+            fs::remove_file(rs_path).ok();
+            pruned_dir = true;
+        }
+        Ok(())
+    })?;
+    Ok(pruned_dir)
+}
+
+fn prune_objects_dir(objects_dir: &PathBuf, obj_set: &HashSet<String>) -> Result<(), String> {
     for_each_file_ext_in_dir(&objects_dir, "rs", |rs_path, _| {
         let stem = rs_path.file_stem().unwrap();
         if stem == "mod" {
@@ -221,9 +237,7 @@ fn build_objects_mod(
             fs::remove_file(rs_path).ok();
         }
         Ok(())
-    })?;
-
-    Ok(())
+    })
 }
 
 pub fn build_shaders_dir(shaders_dir: &PathBuf) -> Result<(), String> {
@@ -231,13 +245,16 @@ pub fn build_shaders_dir(shaders_dir: &PathBuf) -> Result<(), String> {
     let objects_dir = generated_dir.join("objects");
     fs::create_dir_all(&objects_dir).unwrap();
 
+    let pruned_dir = prune_generated_dir(&generated_dir, &shaders_dir)?;
     let compiled_shader = compile_shaders(&shaders_dir, &generated_dir)?;
     let generated_mod_path = generated_dir.join("mod.rs");
     let objects_mod_path = objects_dir.join("mod.rs");
 
-    if compiled_shader || !generated_mod_path.is_file() || !objects_mod_path.is_file() {
-        let obj_set = build_generated_mod(&generated_dir, generated_mod_path)?;
-        build_objects_mod(&objects_dir, objects_mod_path, obj_set)?;
+    if pruned_dir || compiled_shader || !generated_mod_path.is_file() || !objects_mod_path.is_file()
+    {
+        let obj_set = build_generated_mod(&generated_dir, &generated_mod_path)?;
+        build_objects_mod(&objects_mod_path, &obj_set)?;
+        prune_objects_dir(&objects_dir, &obj_set)?;
     }
 
     Ok(())
